@@ -105,4 +105,5 @@ nslookup doubleclick.net   # Should return 0.0.0.0
 
 ## Screenshots
 
-![Pi-hole Dashboard](dashboard.png)
+<img width="1252" height="949" alt="Screenshot 2026-04-19 193056" src="https://github.com/user-attachments/assets/42949a4a-1d38-4d93-bb80-4e5cae86a3de" />
+
