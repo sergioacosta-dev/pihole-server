@@ -23,9 +23,14 @@ Dashboard is served by pihole-FTL directly on ports 80 and 443.
 ## Port 53 Conflict Fix
 
 Arch Linux runs systemd-resolved by default, which occupies port 53.
-Pi-hole needs exclusive use of port 53 — disable systemd-resolved first:
+Pi-hole needs exclusive use of port 53 — disable systemd-resolved first.
+
+Back up the existing resolv.conf before touching it — if Pi-hole then fails
+to start (e.g. the missing-log-directory issue below), you still have a
+working resolver to fall back to instead of losing DNS entirely:
 
 ```bash
+sudo cp -L /etc/resolv.conf /etc/resolv.conf.bak-$(date +%Y%m%d-%H%M%S)
 sudo systemctl stop systemd-resolved-varlink.socket systemd-resolved-monitor.socket
 sudo systemctl stop systemd-resolved
 sudo systemctl disable systemd-resolved-varlink.socket systemd-resolved-monitor.socket
@@ -33,6 +38,8 @@ sudo systemctl disable systemd-resolved
 sudo rm /etc/resolv.conf
 echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
 ```
+
+Rollback if Pi-hole doesn't come up: `sudo cp /etc/resolv.conf.bak-* /etc/resolv.conf`.
 
 Verify port 53 is free:
 ```bash
@@ -143,12 +150,16 @@ nslookup doubleclick.net
 
 ## Firewall Ports
 
+Scope DNS and dashboard ports to the LAN subnet, not `Anywhere` — an open
+recursive resolver on the public internet is a DNS-amplification reflector,
+and the dashboard has no auth in front of it by default.
+
 ```bash
 sudo ufw allow 22/tcp    # SSH
-sudo ufw allow 53/tcp    # DNS
-sudo ufw allow 53/udp    # DNS
-sudo ufw allow 80/tcp    # Pi-hole dashboard (HTTP)
-sudo ufw allow 443/tcp   # Pi-hole dashboard (HTTPS)
+sudo ufw allow from 192.168.12.0/24 to any port 53 proto tcp
+sudo ufw allow from 192.168.12.0/24 to any port 53 proto udp
+sudo ufw allow from 192.168.12.0/24 to any port 80 proto tcp
+sudo ufw allow from 192.168.12.0/24 to any port 443 proto tcp
 ```
 
 ---

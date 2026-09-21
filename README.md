@@ -63,11 +63,16 @@ upstreams = [
 
 ### Open firewall ports
 
+Scope these to your LAN subnet, not `Anywhere` — an open recursive DNS
+resolver on the public internet is a known amplification-attack reflector,
+and the dashboard has no auth in front of it by default. Replace
+`192.168.12.0/24` with your actual subnet.
+
 ```bash
-sudo ufw allow 53/tcp
-sudo ufw allow 53/udp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
+sudo ufw allow from 192.168.12.0/24 to any port 53 proto tcp
+sudo ufw allow from 192.168.12.0/24 to any port 53 proto udp
+sudo ufw allow from 192.168.12.0/24 to any port 80 proto tcp
+sudo ufw allow from 192.168.12.0/24 to any port 443 proto tcp
 ```
 
 ### Start Pi-hole

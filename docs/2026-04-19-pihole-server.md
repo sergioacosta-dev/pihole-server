@@ -6,7 +6,7 @@
 
 **Architecture:** Pi-hole runs directly on Omarchy (192.168.12.110), intercepting DNS queries from the Windows PC (192.168.12.143). Blocked domains return a dead address; allowed domains are forwarded to Google DNS (8.8.8.8). The Pi-hole web dashboard runs on port 80 of Omarchy.
 
-**Tech Stack:** Pi-hole, lighttpd, UFW, SSH, Git, GitHub
+**Tech Stack:** Pi-hole, Pi-hole FTL (built-in web server, no lighttpd on v6), UFW, SSH, Git, GitHub
 
 ---
 
@@ -105,17 +105,19 @@ Expected: no output.
 
 ### Task 4: Open Firewall Ports for Pi-hole
 
-**What you're learning:** Pi-hole needs two ports open: 53 for DNS queries and 80 for its web dashboard.
+**What you're learning:** Pi-hole needs two ports open: 53 for DNS queries and 80 for its web dashboard. Scope both to the LAN subnet, not `Anywhere` — an
+open recursive DNS resolver on the public internet is a known amplification-attack
+reflector, and the dashboard has no auth in front of it by default.
 
-- [ ] Open DNS ports (both TCP and UDP — DNS uses both):
+- [ ] Open DNS ports, scoped to your LAN (both TCP and UDP — DNS uses both):
 ```bash
-sudo ufw allow 53/tcp
-sudo ufw allow 53/udp
+sudo ufw allow from 192.168.12.0/24 to any port 53 proto tcp
+sudo ufw allow from 192.168.12.0/24 to any port 53 proto udp
 ```
 
-- [ ] Open the web dashboard port:
+- [ ] Open the web dashboard port, scoped to your LAN:
 ```bash
-sudo ufw allow 80/tcp
+sudo ufw allow from 192.168.12.0/24 to any port 80 proto tcp
 ```
 
 - [ ] Verify all three rules are active:
@@ -124,9 +126,9 @@ sudo ufw status
 ```
 Expected output includes:
 ```
-53/tcp                     ALLOW IN    Anywhere
-53/udp                     ALLOW IN    Anywhere
-80/tcp                     ALLOW IN    Anywhere
+53/tcp                     ALLOW IN    192.168.12.0/24
+53/udp                     ALLOW IN    192.168.12.0/24
+80/tcp                     ALLOW IN    192.168.12.0/24
 ```
 
 **Phase 1 complete.** Omarchy is ready to install Pi-hole.
@@ -143,31 +145,41 @@ Expected output includes:
 
 **What you're learning:** Pi-hole's automated installer handles the full setup — downloading blocklists, configuring the DNS resolver (FTL), and setting up the web dashboard.
 
-- [ ] Run the Pi-hole installer (this downloads and runs the official install script):
+- [ ] The official curl-installer does not support Arch (pacman) — install via AUR instead:
 ```bash
-curl -sSL https://install.pi-hole.net | bash
+yay -S pi-hole-ftl-bin
+yay -S pi-hole-core pi-hole-web
 ```
 
-Expected: a blue text-based installer opens in your terminal.
+Pi-hole v6 includes its own built-in web server (FTL serves the dashboard
+directly on ports 80/443) — lighttpd is not required and not installed by
+this path.
 
-- [ ] Work through the installer screens:
-  - **Welcome screen** — press Enter to continue
-  - **Static IP warning** — press Enter (we'll handle this)
-  - **Choose interface** — select your network interface (likely `eth0` or `wlan0` — whichever has IP `192.168.12.110`)
-  - **Upstream DNS provider** — select `Google (ECS)` (option 1)
-  - **Blocklists** — leave default checked, press Enter
-  - **Install web admin interface** — select `On`
-  - **Install web server (lighttpd)** — select `On`
-  - **Enable query logging** — select `On`
-  - **Privacy mode** — select `Show everything` (option 0)
-  - **Installation completes** — note the admin password shown at the end. Write it down.
+- [ ] Create the log directory FTL expects (Pi-hole v6 on Arch doesn't create
+this automatically and will fail to start dnsmasq without it):
+```bash
+sudo mkdir -p /var/log/pihole
+sudo touch /var/log/pihole/pihole.log
+sudo chown -R pihole:pihole /var/log/pihole
+```
 
-Expected final output includes:
+- [ ] Set the upstream DNS resolver (Pi-hole v6 installs with `upstreams = []`
+by default, which accepts queries but times out on all of them). Edit
+`/etc/pihole/pihole.toml`:
+```toml
+upstreams = [
+  "8.8.8.8",
+  "8.8.4.4"
+]
 ```
-  [✓] FTL Engine Installed
-  [✓] Web Interface Installed
+
+- [ ] Start Pi-hole and set an admin password:
+```bash
+sudo systemctl enable --now pihole-FTL
+sudo pihole setpassword
 ```
-And a line showing your admin password.
+
+Expected: `pihole status` shows DNS service running and blocking enabled.
 
 ---
 
@@ -183,9 +195,9 @@ Expected:
   [✓] Pi-hole blocking is enabled
 ```
 
-- [ ] Check the web server is running:
+- [ ] Check the web server is running (v6 serves the dashboard from FTL itself, not lighttpd):
 ```bash
-sudo systemctl status lighttpd
+sudo systemctl status pihole-FTL
 ```
 Expected: `Active: active (running)`.
 
@@ -275,7 +287,7 @@ Expected: returns `0.0.0.0` or `::` — Pi-hole is sinkholing the domain.
 - [ ] Go to Pi-hole dashboard → main page. After a few minutes of browsing, you should see:
   - **Total queries** — number of DNS lookups made
   - **Queries blocked** — percentage blocked (typically 10–30% is normal)
-  - **Domains on blocklist** — should show ~300,000+
+  - **Domains on blocklist** — should show 88,000+ (default Pi-hole v6 list)
 
 - [ ] Click **Top Blocked Domains** to see which ad networks are being blocked most.
 
@@ -336,7 +348,7 @@ nslookup doubleclick.net
 
 ## Troubleshooting
 - If Pi-hole stops working: ssh into Omarchy and run `pihole restartdns`
-- If dashboard unreachable: check `sudo systemctl status lighttpd`
+- If dashboard unreachable: check `sudo systemctl status pihole-FTL`
 - If port 53 conflict: check `sudo ss -tlnp | grep ':53'`
 ```
 
@@ -388,88 +400,10 @@ Expected: code pushed, live at `github.com/sergioacosta-dev/pihole-server`
 
 ### Task 14: Write the README
 
-- [ ] Create `F:\IT_Proj\pihole-server\README.md`:
-
-```markdown
-# Pi-hole Home Server
-
-A self-hosted DNS sinkhole that blocks ads and tracking domains network-wide, built as a home lab project covering IT and networking fundamentals.
-
-## What It Does
-
-- Intercepts DNS queries from devices on the local network
-- Blocks requests to known ad and tracking domains using a 300,000+ domain blocklist
-- Returns a dead address for blocked domains so ads never load
-- Provides a web dashboard showing live query logs and blocking statistics
-
-## Architecture
-
-```
-Windows PC (192.168.12.143)
-  → DNS query → Pi-hole (192.168.12.110:53)
-                  → blocked? → return 0.0.0.0
-                  → allowed? → forward to 8.8.8.8 → return real IP
-```
-
-## Tech Stack
-
-- Pi-hole (DNS sinkhole + blocklist management)
-- Pi-hole FTL (DNS resolver)
-- lighttpd (dashboard web server)
-- UFW (firewall)
-- Arch Linux (server OS)
-
-## Setup
-
-### Prerequisites
-
-- A Linux machine on your local network with a static local IP
-- SSH access to the Linux machine from your Windows PC
-- UFW installed and active
-
-### Install Pi-hole
-
-```bash
-# On the Linux machine via SSH
-curl -sSL https://install.pi-hole.net | bash
-```
-
-Follow the installer prompts. Select Google DNS as upstream, enable the web interface and lighttpd.
-
-### Open Firewall Ports
-
-```bash
-sudo ufw allow 53/tcp
-sudo ufw allow 53/udp
-sudo ufw allow 80/tcp
-```
-
-### Configure Windows DNS
-
-1. Open Network Connections (`ncpa.cpl`)
-2. Right-click adapter → Properties → IPv4 → Properties
-3. Set Preferred DNS to your Pi-hole machine's IP
-4. Set Alternate DNS to `8.8.8.8` as fallback
-5. Run `ipconfig /flushdns` in PowerShell
-
-### Verify
-
-```powershell
-nslookup google.com        # Server line should show Pi-hole IP
-nslookup doubleclick.net   # Should return 0.0.0.0
-```
-
-## What I Learned
-
-- **DNS:** How domain name resolution works, DNS query flow, what a sinkhole is
-- **IT:** Firewall port management, service configuration, port conflict diagnosis
-- **Networking:** How DNS settings affect all traffic on a device, upstream DNS forwarding
-- **Linux:** systemd service management, UFW rules, SSH-based server administration
-
-## Screenshots
-
-[Add screenshot of Pi-hole dashboard here]
-```
+**Note:** This task's original draft is superseded — the repo's actual
+`README.md` is the source of truth for setup steps, stack, and blocklist
+count. Don't duplicate its content here; edit `README.md` directly and keep
+this plan pointing at it, to avoid the two drifting out of sync again.
 
 - [ ] Commit and push the README:
 ```

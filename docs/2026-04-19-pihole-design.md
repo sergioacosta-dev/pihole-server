@@ -29,10 +29,9 @@ Pi-hole runs directly on Omarchy (Arch Linux). No Docker. The Pi-hole web dashbo
 
 | Component | Role |
 |-----------|------|
-| Pi-hole FTL | DNS resolver — intercepts queries, checks blocklist |
-| lighttpd | Web server for Pi-hole dashboard (auto-installed) |
-| Pi-hole blocklist | Default list of ~300k ad/tracking domains |
-| UFW | Firewall — must allow ports 53 (DNS) and 80 (dashboard) |
+| Pi-hole FTL | DNS resolver + built-in web server — intercepts queries, checks blocklist, serves the dashboard (v6 does not need lighttpd) |
+| Pi-hole blocklist | Default list of 88,000+ ad/tracking domains |
+| UFW | Firewall — must allow ports 53 (DNS) and 80 (dashboard), scoped to the LAN subnet, not `Anywhere` |
 | Windows DNS settings | Point Windows to 192.168.12.110 instead of router |
 
 ---
